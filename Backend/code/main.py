@@ -158,7 +158,7 @@ async def generate_matrices(request: MatrixRequest, response: Response):
 
         # Ajouter le dépôt (à Casablanca) au début
         depot = pd.DataFrame([{
-            'id': 'DEPOT_CASA', 
+            'id': 'DEPOT', 
             'lat': request.depot_lat, 
             'lng': request.depot_lng, 
             'weight': 0
@@ -707,7 +707,10 @@ async def solve_vrp(request: VRPRequest, http_request: Request):
         def time_callback(from_index, to_index):
             from_node = manager.IndexToNode(from_index)
             to_node = manager.IndexToNode(to_index)
-            return int(data['time_matrix'][from_node][to_node] + SERVICE_TIME)
+            travel_time = data['time_matrix'][from_node][to_node]
+            # Ajouter temps de service seulement si ce n'est pas le dépôt
+            service = SERVICE_TIME if from_node != data['depot'] else 0
+            return int(travel_time + service)
 
         time_callback_index = routing.RegisterTransitCallback(time_callback)
 
@@ -849,14 +852,24 @@ async def solve_vrp(request: VRPRequest, http_request: Request):
                         # Coordonnées de la cible (prochain point)
                         dst_lat = clients_df.loc[next_node_index, 'lat']
                         dst_lng = clients_df.loc[next_node_index, 'lng']
+                        # IDs source et cible
+                        src_id = clients_df.loc[node_index, 'id']
+                        dst_id = clients_df.loc[next_node_index, 'id']
+                        # Distance (km) et durée (min) pour cet arc
+                        arc_distance_km = round(float(data['distance_matrix'][node_index][next_node_index]), 2)
+                        arc_duration_min = round(float(data['time_matrix'][node_index][next_node_index]), 2)
                         
                         # Ajouter le segment à la liste
                         route_lines.append({
                             'vehicle_id': vehicle_id + 1,
+                            'source_id': src_id,
                             'source_lat': src_lat,
                             'source_lng': src_lng,
+                            'target_id': dst_id,
                             'target_lat': dst_lat,
-                            'target_lng': dst_lng
+                            'target_lng': dst_lng,
+                            'distance_km': arc_distance_km,
+                            'duration_min': arc_duration_min,
                         })
                     else:
                         # Dernier segment : retour au dépôt
@@ -864,18 +877,28 @@ async def solve_vrp(request: VRPRequest, http_request: Request):
                         src_lng = clients_df.loc[node_index, 'lng']
                         depot_lat = clients_df.loc[data['depot'], 'lat']
                         depot_lng = clients_df.loc[data['depot'], 'lng']
+                        # IDs pour retour dépôt
+                        src_id = clients_df.loc[node_index, 'id']
+                        dst_id = clients_df.loc[data['depot'], 'id']
+                        # Distance (km) et durée (min) pour retour dépôt
+                        arc_distance_km = round(float(data['distance_matrix'][node_index][data['depot']]), 2)
+                        arc_duration_min = round(float(data['time_matrix'][node_index][data['depot']]), 2)
                         
                         route_lines.append({
                             'vehicle_id': vehicle_id + 1,
+                            'source_id': src_id,
                             'source_lat': src_lat,
                             'source_lng': src_lng,
+                            'target_id': dst_id,
                             'target_lat': depot_lat,
-                            'target_lng': depot_lng
+                            'target_lng': depot_lng,
+                            'distance_km': arc_distance_km,
+                            'duration_min': arc_duration_min,
                         })
 
             # Sauvegarder dans routes.csv pour visualisation
             with open('static/routes.csv', mode='w', newline='') as file:
-                writer = csv.DictWriter(file, fieldnames=['vehicle_id', 'source_lat', 'source_lng', 'target_lat', 'target_lng'])
+                writer = csv.DictWriter(file, fieldnames=['vehicle_id', 'source_id', 'source_lat', 'source_lng', 'target_id', 'target_lat', 'target_lng', 'distance_km', 'duration_min'])
                 writer.writeheader()
                 writer.writerows(route_lines)
 
